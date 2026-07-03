@@ -1,0 +1,154 @@
+{
+  "entities": {
+    "Client": {
+      "title": "Client",
+      "description": "Represents a customer or client for invoicing and statements.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique Client ID" },
+        "name": { "type": "string", "description": "Client full name" },
+        "email": { "type": "string", "description": "Client email address" },
+        "phone": { "type": "string", "description": "Client phone number" },
+        "company": { "type": "string", "description": "Company name" },
+        "address": { "type": "string", "description": "Billing address" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "email", "userId"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Item",
+      "description": "Represents a product or service in the inventory.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Item ID" },
+        "name": { "type": "string", "description": "Product or service name" },
+        "sku": { "type": "string", "description": "Stock Keeping Unit" },
+        "description": { "type": "string" },
+        "price": { "type": "number", "description": "Base pricing" },
+        "currency": { "type": "string", "description": "Currency code" },
+        "quantity": { "type": "number", "description": "Current stock quantity available" },
+        "minStockLevel": { "type": "number", "description": "Low stock alert threshold" },
+        "taxRate": { "type": "number", "description": "Default tax rate percentage" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "price", "quantity", "userId"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "An invoice document requesting payment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientEmail": { "type": "string" },
+        "issueDate": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "items": {
+          "type": "array",
+          "description": "Items billed on the invoice"
+        },
+        "subtotal": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "total": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "sent", "paid", "overdue"] },
+        "notes": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "invoiceNumber", "clientId", "items", "total", "userId", "status"]
+    },
+    "Quotation": {
+      "title": "Quotation",
+      "description": "A pricing offer or quote provided to a client.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "quotationNumber": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientEmail": { "type": "string" },
+        "issueDate": { "type": "string" },
+        "expiryDate": { "type": "string" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "total": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "sent", "accepted", "declined"] },
+        "notes": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "quotationNumber", "clientId", "items", "total", "userId", "status"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "A payment made against an invoice.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceId": { "type": "string" },
+        "clientId": { "type": "string" },
+        "amount": { "type": "number" },
+        "paymentDate": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "reference": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "invoiceId", "amount", "paymentDate", "userId"]
+    },
+    "BusinessSettings": {
+      "title": "Business Settings",
+      "description": "Configurations and templates for the business profile.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "businessName": { "type": "string" },
+        "businessEmail": { "type": "string" },
+        "businessPhone": { "type": "string" },
+        "businessAddress": { "type": "string" },
+        "taxId": { "type": "string" },
+        "defaultCurrency": { "type": "string" },
+        "emailTemplateSubject": { "type": "string" },
+        "emailTemplateBody": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId"]
+    }
+  },
+  "firestore": {
+    "clients/{clientId}": {
+      "schema": "Client",
+      "description": "Durable collection of business clients."
+    },
+    "inventory/{itemId}": {
+      "schema": "InventoryItem",
+      "description": "Real-time stock of products and services."
+    },
+    "invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "All financial client invoices."
+    },
+    "quotations/{quotationId}": {
+      "schema": "Quotation",
+      "description": "Quotations and professional proposals."
+    },
+    "payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Client transaction registry."
+    },
+    "settings/{userId}": {
+      "schema": "BusinessSettings",
+      "description": "Business settings for an authenticated user."
+    }
+  }
+}

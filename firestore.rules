@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Deny Policy
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(currData) {
+      return isSignedIn() && currData.userId == request.auth.uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Static structures check helpers
+    function isValidClient(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+          && data.email is string && data.email.size() <= 100
+          && data.userId == request.auth.uid;
+    }
+
+    function isValidInventoryItem(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() > 0 && data.name.size() <= 150
+          && data.price is number && data.price >= 0
+          && data.quantity is number && data.quantity >= 0
+          && data.userId == request.auth.uid;
+    }
+
+    function isValidInvoice(data) {
+      return data.id is string
+          && data.invoiceNumber is string && data.invoiceNumber.size() <= 50
+          && data.clientId is string
+          && data.items is list
+          && data.total is number && data.total >= 0
+          && data.status in ['draft', 'sent', 'paid', 'overdue']
+          && data.userId == request.auth.uid;
+    }
+
+    function isValidQuotation(data) {
+      return data.id is string
+          && data.quotationNumber is string && data.quotationNumber.size() <= 50
+          && data.clientId is string
+          && data.items is list
+          && data.total is number && data.total >= 0
+          && data.status in ['draft', 'sent', 'accepted', 'declined']
+          && data.userId == request.auth.uid;
+    }
+
+    function isValidPayment(data) {
+      return data.id is string
+          && data.invoiceId is string
+          && data.amount is number && data.amount > 0
+          && data.paymentDate is string
+          && data.userId == request.auth.uid;
+    }
+
+    function isValidSettings(data) {
+      return data.userId == request.auth.uid
+          && data.businessName is string && data.businessName.size() <= 150;
+    }
+
+    // --- Rules Match Blocks ---
+
+    match /clients/{clientId} {
+      allow read: if isSignedIn() && isOwner(resource.data);
+      allow create: if isSignedIn() && isValidId(clientId) && isValidClient(request.resource.data);
+      allow update: if isSignedIn() && isOwner(resource.data) && isValidClient(request.resource.data)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && isOwner(resource.data);
+    }
+
+    match /inventory/{itemId} {
+      allow read: if isSignedIn() && isOwner(resource.data);
+      allow create: if isSignedIn() && isValidId(itemId) && isValidInventoryItem(request.resource.data);
+      allow update: if isSignedIn() && isOwner(resource.data) && isValidInventoryItem(request.resource.data)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && isOwner(resource.data);
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isSignedIn() && isOwner(resource.data);
+      allow create: if isSignedIn() && isValidId(invoiceId) && isValidInvoice(request.resource.data);
+      allow update: if isSignedIn() && isOwner(resource.data) && isValidInvoice(request.resource.data)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && isOwner(resource.data);
+    }
+
+    match /quotations/{quotationId} {
+      allow read: if isSignedIn() && isOwner(resource.data);
+      allow create: if isSignedIn() && isValidId(quotationId) && isValidQuotation(request.resource.data);
+      allow update: if isSignedIn() && isOwner(resource.data) && isValidQuotation(request.resource.data)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && isOwner(resource.data);
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && isOwner(resource.data);
+      allow create: if isSignedIn() && isValidId(paymentId) && isValidPayment(request.resource.data);
+      allow update: if isSignedIn() && isOwner(resource.data) && isValidPayment(request.resource.data)
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && isOwner(resource.data);
+    }
+
+    match /settings/{userId} {
+      allow read: if isSignedIn() && userId == request.auth.uid;
+      allow create: if isSignedIn() && userId == request.auth.uid && isValidSettings(request.resource.data);
+      allow update: if isSignedIn() && userId == request.auth.uid && isValidSettings(request.resource.data);
+      allow delete: if isSignedIn() && userId == request.auth.uid;
+    }
+  }
+}

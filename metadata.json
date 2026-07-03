@@ -1,0 +1,6 @@
+{
+  "name": "Invoice & Inventory Suite",
+  "description": "An all-rounder invoice, quotation, statement, and inventory management system with automated tax, multi-currency support, financial analytics, professional templates, and email reminders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
