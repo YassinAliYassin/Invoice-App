@@ -1,22 +1,23 @@
 import React, { useState } from 'react';
 import { useBusiness } from '../context/BusinessContext';
 import { InventoryItem, CurrencyCode, CURRENCY_SYMBOLS } from '../types';
-import { Plus, Trash2, Search, Sliders, AlertTriangle, CheckCircle, HelpCircle, Package, ArrowUpRight, ArrowDownRight, X, Check } from 'lucide-react';
+import { Plus, Trash2, Search, AlertTriangle, CheckCircle, Package, X, Check, Pencil, Sparkles } from 'lucide-react';
 
 export const InventoryModule: React.FC = () => {
-  const { inventory, saveInventoryItem, removeInventoryItem, adjustStock } = useBusiness();
+  const { inventory, saveInventoryItem, removeInventoryItem, adjustStock, settings } = useBusiness();
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Form states
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState<number>(0);
-  const [currency, setCurrency] = useState<CurrencyCode>('USD');
+  const [currency, setCurrency] = useState<CurrencyCode>((settings.defaultCurrency as CurrencyCode) || 'USD');
   const [quantity, setQuantity] = useState<number>(10);
   const [minStockLevel, setMinStockLevel] = useState<number>(5);
-  const [taxRate, setTaxRate] = useState<number>(10);
+  const [taxRate, setTaxRate] = useState<number>(settings.defaultTaxRate || 10);
   const [type, setType] = useState<'product' | 'item' | 'service'>('product');
   const [filterType, setFilterType] = useState<'all' | 'product' | 'item' | 'service'>('all');
   const [errorLocal, setErrorLocal] = useState('');
@@ -29,6 +30,89 @@ export const InventoryModule: React.FC = () => {
     return matchesSearch && matchesType;
   });
 
+  const resetForm = () => {
+    setEditingId(null);
+    setName('');
+    setSku('');
+    setDescription('');
+    setPrice(0);
+    setCurrency((settings.defaultCurrency as CurrencyCode) || 'USD');
+    setQuantity(10);
+    setMinStockLevel(5);
+    setTaxRate(settings.defaultTaxRate || 10);
+    setType('product');
+    setErrorLocal('');
+    setShowAddForm(false);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setShowAddForm(true);
+  };
+
+  const openEdit = (item: InventoryItem) => {
+    setEditingId(item.id);
+    setName(item.name);
+    setSku(item.sku);
+    setDescription(item.description || '');
+    setPrice(item.price);
+    setCurrency((item.currency as CurrencyCode) || 'USD');
+    setQuantity(item.quantity);
+    setMinStockLevel(item.minStockLevel);
+    setTaxRate(item.taxRate);
+    setType(item.type || 'product');
+    setErrorLocal('');
+    setShowAddForm(true);
+  };
+
+  const loadSampleCatalog = async () => {
+    const ts = Date.now();
+    const cur = (settings.defaultCurrency as CurrencyCode) || 'USD';
+    const tax = settings.defaultTaxRate || 10;
+    const samples = [
+      {
+        id: 'p1_' + ts,
+        name: 'Premium Consulting',
+        sku: 'SRV-CONS',
+        description: 'Business advisory service (hourly)',
+        price: 150,
+        currency: cur,
+        quantity: 999999,
+        minStockLevel: 0,
+        taxRate: tax,
+        type: 'service' as const,
+      },
+      {
+        id: 'p2_' + (ts + 1),
+        name: 'Standard Product Kit',
+        sku: 'PRD-KIT',
+        description: 'Starter product package',
+        price: 89,
+        currency: cur,
+        quantity: 25,
+        minStockLevel: 5,
+        taxRate: tax,
+        type: 'product' as const,
+      },
+      {
+        id: 'p3_' + (ts + 2),
+        name: 'Consumable Parts',
+        sku: 'ITM-PART',
+        description: 'Replacement parts pack',
+        price: 12,
+        currency: cur,
+        quantity: 100,
+        minStockLevel: 20,
+        taxRate: tax,
+        type: 'item' as const,
+      },
+    ];
+    // Sequential saves so local state doesn't race
+    await saveInventoryItem(samples[0]);
+    await saveInventoryItem(samples[1]);
+    await saveInventoryItem(samples[2]);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorLocal('');
@@ -40,9 +124,9 @@ export const InventoryModule: React.FC = () => {
 
     try {
       const itemPayload = {
-        id: "prod_" + Date.now().toString(),
+        id: editingId || 'prod_' + Date.now().toString(),
         name,
-        sku: sku || "SKU-" + Date.now().toString().slice(-5).toUpperCase(),
+        sku: sku || 'SKU-' + Date.now().toString().slice(-5).toUpperCase(),
         description,
         price,
         currency,
@@ -53,19 +137,9 @@ export const InventoryModule: React.FC = () => {
       };
 
       await saveInventoryItem(itemPayload);
-
-      // Reset
-      setName('');
-      setSku('');
-      setDescription('');
-      setPrice(0);
-      setQuantity(10);
-      setMinStockLevel(5);
-      setType('product');
-      setErrorLocal('');
-      setShowAddForm(false);
+      resetForm();
     } catch (err: any) {
-      setErrorLocal(err.message || "Failed to catalog product");
+      setErrorLocal(err.message || 'Failed to catalog product');
     }
   };
 
@@ -80,7 +154,7 @@ export const InventoryModule: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => (showAddForm ? resetForm() : openCreate())}
           className={`px-4 py-2.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all duration-300 shadow-md cursor-pointer select-none active:scale-[0.98] ${
             showAddForm
               ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 shadow-rose-100/50'
@@ -104,7 +178,9 @@ export const InventoryModule: React.FC = () => {
       {/* Stock catalog submission form */}
       {showAddForm && (
         <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col gap-4 max-w-3xl">
-          <h3 className="text-sm font-bold text-slate-850 uppercase tracking-wider mb-2">Configure Product / Service Profile</h3>
+          <h3 className="text-sm font-bold text-slate-850 uppercase tracking-wider mb-2">
+            {editingId ? 'Edit Product / Service' : 'Configure Product / Service Profile'}
+          </h3>
 
           {errorLocal && (
             <div className="bg-red-50 border border-red-200 text-red-605 rounded p-3 text-xs flex items-center gap-2">
@@ -246,7 +322,7 @@ export const InventoryModule: React.FC = () => {
           <div className="flex justify-end gap-2.5 mt-2 border-t border-slate-100 pt-4">
             <button
               type="button"
-              onClick={() => setShowAddForm(false)}
+              onClick={resetForm}
               className="px-4 py-2 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-550 transition-all cursor-pointer border border-transparent hover:border-slate-200 flex items-center gap-1.5"
             >
               <X className="w-3.5 h-3.5" />
@@ -257,7 +333,7 @@ export const InventoryModule: React.FC = () => {
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shadow-indigo-100"
             >
               <Check className="w-3.5 h-3.5" />
-              Save Catalog Asset
+              {editingId ? 'Save Changes' : 'Save Catalog Asset'}
             </button>
           </div>
         </form>
@@ -334,7 +410,7 @@ export const InventoryModule: React.FC = () => {
                 <th className="py-3 px-4 text-center">Tax preset</th>
                 <th className="py-3 px-4 text-center w-40">Stock Quantity</th>
                 <th className="py-3 px-4 text-center">Availability Status</th>
-                <th className="py-3 px-4 text-right">Delete</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -410,13 +486,26 @@ export const InventoryModule: React.FC = () => {
                       )}
                     </td>
                     <td className="py-4 px-4 text-right">
-                      <button
-                        onClick={() => removeInventoryItem(item.id)}
-                        className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer"
-                        title="Delete Product"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-0.5">
+                        <button
+                          onClick={() => openEdit(item)}
+                          className="p-1.5 rounded text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-all cursor-pointer"
+                          title="Edit Product"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Delete "${item.name}" from catalog?`)) {
+                              removeInventoryItem(item.id);
+                            }
+                          }}
+                          className="p-1.5 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                          title="Delete Product"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -425,10 +514,31 @@ export const InventoryModule: React.FC = () => {
               {filteredItems.length === 0 && (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
-                    <div className="flex flex-col items-center justify-center gap-2">
+                    <div className="flex flex-col items-center justify-center gap-3">
                       <Package className="w-8 h-8 text-slate-350" />
                       <h5 className="font-bold text-slate-700">Stock Catalog is Empty</h5>
-                      <p className="text-xs leading-normal max-w-xs font-sans">Introduce items using catalog forms. Registered items automatically pull pricing and tax levels into quotations and billing line grids!</p>
+                      <p className="text-xs leading-normal max-w-xs font-sans">
+                        Add products, items, or services. Line items pull pricing and tax into quotes and invoices.
+                      </p>
+                      <div className="flex flex-wrap gap-2 justify-center mt-1">
+                        <button
+                          type="button"
+                          onClick={openCreate}
+                          className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg cursor-pointer hover:bg-indigo-700"
+                        >
+                          Add first item
+                        </button>
+                        {inventory.length === 0 && (
+                          <button
+                            type="button"
+                            onClick={loadSampleCatalog}
+                            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg cursor-pointer hover:bg-slate-50 flex items-center gap-1.5"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                            Load sample catalog
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </td>
                 </tr>

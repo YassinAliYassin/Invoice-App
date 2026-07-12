@@ -1,10 +1,12 @@
 {
-  "projectId": "intricate-karst-cs7sz",
-  "appId": "1:586137501586:web:11399424b12c75cdcd0b4b",
-  "apiKey": "AIzaSyA6P2A8euhnVmfo3EcR2TbgaMKqIFrBiXI",
-  "authDomain": "intricate-karst-cs7sz.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-4cd08b6b-8995-49ef-a4c7-810726eb9a56",
-  "storageBucket": "intricate-karst-cs7sz.firebasestorage.app",
-  "messagingSenderId": "586137501586",
-  "measurementId": ""
+  "projectId": "invoice-stack-yassin-app",
+  "appId": "1:288231355419:web:8ecf83ccafce64c0a034be",
+  "storageBucket": "invoice-stack-yassin-app.firebasestorage.app",
+  "apiKey": "AIzaSyB2hqvYZWx9TOgMgTFaYueVoljlheCWC9Y",
+  "authDomain": "invoice-stack-yassin-app.firebaseapp.com",
+  "messagingSenderId": "288231355419",
+  "measurementId": "",
+  "projectNumber": "288231355419",
+  "version": "2",
+  "isPlaceholder": false
 }

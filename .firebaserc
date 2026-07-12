@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "invoice-stack-yassin-app"
+  },
+  "targets": {
+    "invoice-stack-yassin-app": {
+      "hosting": {
+        "default": [
+          "invoice-stack-yassin-app"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

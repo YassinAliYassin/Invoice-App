@@ -102,6 +102,12 @@ export interface BusinessSettings {
   overdueAlertTemplate?: string;
   emailTemplateSubject?: string;
   emailTemplateBody?: string;
+  /** EmailJS service ID (e.g. service_xxx) for real outbound email */
+  emailjsServiceId?: string;
+  /** EmailJS template ID (e.g. template_xxx) */
+  emailjsTemplateId?: string;
+  /** EmailJS public key */
+  emailjsPublicKey?: string;
   updatedAt?: string;
 }
 

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useBusiness } from '../context/BusinessContext';
-import { Client } from '../types';
-import { Search, Calendar, FileText, User, ChevronRight, Sparkles, Filter, Landmark } from 'lucide-react';
+import { Filter, Landmark, SlidersHorizontal } from 'lucide-react';
 import { DocumentTemplates } from './DocumentTemplates';
+import { formatMoney } from '../utils/export';
 
 export const StatementModule: React.FC = () => {
   const { clients, invoices, payments, settings } = useBusiness();
@@ -10,6 +10,12 @@ export const StatementModule: React.FC = () => {
   const [startDate, setStartDate] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]); // 30 days ago
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [showStatementPrint, setShowStatementPrint] = useState(false);
+  const currency = settings.defaultCurrency || 'USD';
+
+  const applyRange = (days: number) => {
+    setEndDate(new Date().toISOString().split('T')[0]);
+    setStartDate(new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  };
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
 
@@ -87,6 +93,19 @@ export const StatementModule: React.FC = () => {
                 className="border border-slate-200 p-2.5 rounded-lg text-xs outline-none focus:border-blue-500 font-mono"
               />
             </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {[30, 60, 90, 365].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => applyRange(d)}
+                  className="px-2.5 py-1 text-[10px] font-bold uppercase rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer border border-slate-200"
+                >
+                  {d === 365 ? '1Y' : `${d}d`}
+                </button>
+              ))}
+            </div>
           </div>
 
           {selectedClientId && (
@@ -94,7 +113,7 @@ export const StatementModule: React.FC = () => {
               onClick={() => setShowStatementPrint(true)}
               className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 text-white" />
+              <SlidersHorizontal className="w-4 h-4 text-white" />
               Customize Print Template
             </button>
           )}
@@ -127,18 +146,18 @@ export const StatementModule: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="bg-slate-50 border border-slate-150 p-3.5 rounded-lg text-center font-sans">
                   <span className="text-[9px] font-mono uppercase font-bold text-slate-400 tracking-wider">Total Billed Amt</span>
-                  <p className="text-lg font-bold text-slate-800 mt-1">${totalBilled.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-slate-800 mt-1">{formatMoney(totalBilled, currency)}</p>
                 </div>
 
                 <div className="bg-slate-50 border border-slate-150 p-3.5 rounded-lg text-center font-sans">
                   <span className="text-[9px] font-mono uppercase font-bold text-emerald-500 tracking-wider font-sans">Total Credits Received</span>
-                  <p className="text-lg font-bold text-emerald-600 mt-1">${totalCredited.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-emerald-600 mt-1">{formatMoney(totalCredited, currency)}</p>
                 </div>
 
                 <div className="bg-slate-50 border border-slate-150 p-3.5 rounded-lg text-center font-sans">
                   <span className="text-[9px] font-mono uppercase font-bold text-slate-400 tracking-wider">Arrears Balance</span>
                   <p className={`text-lg font-bold mt-1 ${balanceOutstanding > 0 ? 'text-red-650' : 'text-emerald-600'}`}>
-                    ${balanceOutstanding.toFixed(2)}
+                    {formatMoney(balanceOutstanding, currency)}
                   </p>
                 </div>
               </div>

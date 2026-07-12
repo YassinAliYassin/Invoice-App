@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useBusiness } from '../context/BusinessContext';
 import { CurrencyCode, CURRENCY_SYMBOLS } from '../types';
-import { Building2, Save, Sparkles, CheckCircle, Sliders, AlertCircle, Upload, Trash2, Palette, Image as ImageIcon } from 'lucide-react';
+import { Building2, Save, Mail, CheckCircle, Sliders, AlertCircle, Upload, Trash2, Palette, Image as ImageIcon, Send } from 'lucide-react';
+import { isEmailConfigured } from '../utils/email-service';
 
 const BRAND_PRESETS = [
   { name: 'Classic Blue', hex: '#2563eb' },
@@ -13,25 +14,46 @@ const BRAND_PRESETS = [
   { name: 'Charcoal Noir', hex: '#374151' }
 ];
 
+const DEFAULT_OVERDUE_TEMPLATE =
+  `Dear {clientName},\n\nThis is a professional friendly reminder that Invoice {invoiceNumber} for the amount of {totalAmount} remains outstanding. Please resolve transfer on priority.\n\nBest regards,\n{businessName}`;
+
 export const SettingsModule: React.FC = () => {
-  const { settings, saveSettings } = useBusiness();
+  const { settings, saveSettings, user } = useBusiness();
   const [successMsg, setSuccessMsg] = useState('');
   const [errorLocal, setErrorLocal] = useState('');
 
-  // Form states initialized from context settings
-  const [businessName, setBusinessName] = useState(settings.businessName || 'Consultancy Group LLC');
-  const [businessEmail, setBusinessEmail] = useState(settings.businessEmail || 'finance@consultancyltd.com');
-  const [businessPhone, setBusinessPhone] = useState(settings.businessPhone || '+1 (555) 700 8900');
-  const [businessAddress, setBusinessAddress] = useState(settings.businessAddress || '10 Wall St, Floor 25, New York, NY 10005');
-  const [taxId, setTaxId] = useState(settings.taxId || 'VAT-US-990123');
+  const [businessName, setBusinessName] = useState(settings.businessName || '');
+  const [businessEmail, setBusinessEmail] = useState(settings.businessEmail || user?.email || '');
+  const [businessPhone, setBusinessPhone] = useState(settings.businessPhone || '');
+  const [businessAddress, setBusinessAddress] = useState(settings.businessAddress || '');
+  const [taxId, setTaxId] = useState(settings.taxId || '');
   const [defaultCurrency, setDefaultCurrency] = useState<CurrencyCode>((settings.defaultCurrency as CurrencyCode) || 'USD');
   const [defaultTaxRate, setDefaultTaxRate] = useState<number>(settings.defaultTaxRate || 10);
   const [logoUrl, setLogoUrl] = useState<string>(settings.logoUrl || '');
   const [brandColor, setBrandColor] = useState<string>(settings.brandColor || '#2563eb');
   const [overdueAlertTemplate, setOverdueAlertTemplate] = useState(
-    settings.overdueAlertTemplate || 
-    `Dear {clientName},\n\nThis is a professional friendly reminder that Invoice {invoiceNumber} for the amount of {totalAmount} remains clearing outstanding overdue balance with our registry. Please resolve transfer on priority.\n\nBest regards,\n{businessName}`
+    settings.overdueAlertTemplate || DEFAULT_OVERDUE_TEMPLATE
   );
+  const [emailjsServiceId, setEmailjsServiceId] = useState(settings.emailjsServiceId || '');
+  const [emailjsTemplateId, setEmailjsTemplateId] = useState(settings.emailjsTemplateId || '');
+  const [emailjsPublicKey, setEmailjsPublicKey] = useState(settings.emailjsPublicKey || '');
+
+  // Keep form in sync when cloud/local settings load or update
+  useEffect(() => {
+    setBusinessName(settings.businessName || '');
+    setBusinessEmail(settings.businessEmail || user?.email || '');
+    setBusinessPhone(settings.businessPhone || '');
+    setBusinessAddress(settings.businessAddress || '');
+    setTaxId(settings.taxId || '');
+    setDefaultCurrency((settings.defaultCurrency as CurrencyCode) || 'USD');
+    setDefaultTaxRate(settings.defaultTaxRate || 10);
+    setLogoUrl(settings.logoUrl || '');
+    setBrandColor(settings.brandColor || '#2563eb');
+    setOverdueAlertTemplate(settings.overdueAlertTemplate || DEFAULT_OVERDUE_TEMPLATE);
+    setEmailjsServiceId(settings.emailjsServiceId || '');
+    setEmailjsTemplateId(settings.emailjsTemplateId || '');
+    setEmailjsPublicKey(settings.emailjsPublicKey || '');
+  }, [settings, user?.email]);
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -78,7 +100,10 @@ export const SettingsModule: React.FC = () => {
         defaultTaxRate,
         overdueAlertTemplate,
         logoUrl,
-        brandColor
+        brandColor,
+        emailjsServiceId: emailjsServiceId.trim(),
+        emailjsTemplateId: emailjsTemplateId.trim(),
+        emailjsPublicKey: emailjsPublicKey.trim(),
       });
 
       setSuccessMsg('Corporate presets synchronized successfully!');
@@ -299,10 +324,10 @@ export const SettingsModule: React.FC = () => {
         {/* Automated prompt template configurations */}
         <div className="border-t border-slate-100 pt-5 flex flex-col gap-2">
           <span className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-blue-600" />
+            <Mail className="w-4 h-4 text-blue-600" />
             Default Overdue Mailer Template Presets
           </span>
-          <p className="text-[10px] text-slate-400">This template acts as a baseline guideline context for Gemini drafting. Keep bracket variables such as <strong className="font-mono text-slate-500">{"{clientName}"}</strong>, <strong className="font-mono text-slate-400">{"{invoiceNumber}"}</strong>, <strong className="font-mono text-slate-400">{"{totalAmount}"}</strong> completely intact!</p>
+          <p className="text-[10px] text-slate-400">This template acts as a baseline guideline context for automated drafting. Keep bracket variables such as <strong className="font-mono text-slate-500">{"{clientName}"}</strong>, <strong className="font-mono text-slate-400">{"{invoiceNumber}"}</strong>, <strong className="font-mono text-slate-400">{"{totalAmount}"}</strong> completely intact!</p>
           
           <textarea
             value={overdueAlertTemplate}
@@ -310,6 +335,86 @@ export const SettingsModule: React.FC = () => {
             rows={5}
             className="border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white rounded-lg p-3 text-xs outline-none focus:border-blue-500 transition-all leading-relaxed font-mono"
           />
+        </div>
+
+        {/* EmailJS outbound email */}
+        <div className="border-t border-slate-100 pt-5 flex flex-col gap-4">
+          <span className="text-xs font-bold text-slate-800 uppercase tracking-widest font-mono flex items-center gap-1.5">
+            <Send className="w-4 h-4 text-blue-600" />
+            Email Delivery (EmailJS)
+          </span>
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            Optional. Create a free account at{' '}
+            <a
+              href="https://www.emailjs.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-600 font-semibold underline"
+            >
+              emailjs.com
+            </a>
+            , add an email service + template with variables{' '}
+            <code className="font-mono text-slate-500">to_email</code>,{' '}
+            <code className="font-mono text-slate-500">subject</code>,{' '}
+            <code className="font-mono text-slate-500">message</code>, then paste IDs below.
+            Without EmailJS, reminders open your default mail app instead.
+          </p>
+
+          <div
+            className={`text-[11px] rounded-lg px-3 py-2 border ${
+              isEmailConfigured({ emailjsServiceId, emailjsTemplateId, emailjsPublicKey }) ||
+              isEmailConfigured(settings)
+                ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                : 'bg-amber-50 border-amber-100 text-amber-800'
+            }`}
+          >
+            {isEmailConfigured({ emailjsServiceId, emailjsTemplateId, emailjsPublicKey }) ||
+            isEmailConfigured(settings)
+              ? 'EmailJS looks configured — invoice reminders will send in-app.'
+              : 'EmailJS not configured yet — mail app fallback is active.'}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-mono font-semibold text-slate-400 uppercase">
+                Service ID
+              </span>
+              <input
+                type="text"
+                value={emailjsServiceId}
+                onChange={(e) => setEmailjsServiceId(e.target.value)}
+                placeholder="service_xxxxxxx"
+                className="border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white rounded-lg p-2.5 text-xs outline-none focus:border-blue-500 font-mono"
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-mono font-semibold text-slate-400 uppercase">
+                Template ID
+              </span>
+              <input
+                type="text"
+                value={emailjsTemplateId}
+                onChange={(e) => setEmailjsTemplateId(e.target.value)}
+                placeholder="template_xxxxxxx"
+                className="border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white rounded-lg p-2.5 text-xs outline-none focus:border-blue-500 font-mono"
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-mono font-semibold text-slate-400 uppercase">
+                Public Key
+              </span>
+              <input
+                type="text"
+                value={emailjsPublicKey}
+                onChange={(e) => setEmailjsPublicKey(e.target.value)}
+                placeholder="xxxxxxxxxxxx"
+                className="border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white rounded-lg p-2.5 text-xs outline-none focus:border-blue-500 font-mono"
+                autoComplete="off"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="border-t border-slate-100 pt-4 flex justify-end font-sans">

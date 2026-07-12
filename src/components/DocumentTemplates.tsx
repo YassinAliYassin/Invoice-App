@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { Invoice, Quotation, Client, CURRENCY_SYMBOLS, CurrencyCode } from '../types';
-import { Printer, Download, X, Eye, Sparkles, LayoutGrid, Sliders, Mail, MessageSquare } from 'lucide-react';
+import { Printer, Download, X, Eye, LayoutGrid, Sliders, Mail, MessageSquare, CheckCircle } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { sendBusinessEmail } from '../utils/email-service';
 
 interface DocumentTemplatesProps {
   document: Invoice | Quotation | any;
@@ -34,20 +37,53 @@ export const DocumentTemplates: React.FC<DocumentTemplatesProps> = ({
   onClose,
   businessProfile
 }) => {
-  const { clients } = useBusiness();
+  const { clients, settings } = useBusiness();
   const [theme, setTheme] = useState<TemplateTheme>('corporate');
   const [accentColor, setAccentColor] = useState(businessProfile.brandColor || '#2563eb');
   const [padding, setPadding] = useState<'normal' | 'compact' | 'spacious'>('normal');
   const [showWatermark, setShowWatermark] = useState(true);
+  const [emailBusy, setEmailBusy] = useState(false);
 
-  // Print function
-  const handlePrint = () => {
-    window.print();
+  // PDF Export function
+  const handleExportPDF = async () => {
+    const element = document.getElementById('print-sheet');
+    if (!element) return;
+
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      });
+      
+      const imgData = canvas.toDataURL('image/jpeg', 1.0);
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'px',
+        format: 'a4',
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`${isInvoice ? 'Invoice' : isQuotation ? 'Quotation' : 'Statement'}_${docNo}.pdf`);
+    } catch (error) {
+      console.error('PDF Generation Error:', error);
+      alert('Failed to generate PDF. Please try printing to PDF via the browser instead.');
+    }
   };
 
-  const handleEmailShare = () => {
-    const docTypeLabel = isInvoice ? (document?.status === 'paid' ? 'Official Receipt' : 'Invoice') : isQuotation ? 'Quotation Proposal' : 'Statement Period';
-    const subject = encodeURIComponent(`${businessProfile.businessName} - ${docTypeLabel} ${docNo}`);
+  const handleEmailShare = async () => {
+    const docTypeLabel = isInvoice
+      ? document?.status === 'paid'
+        ? 'Official Receipt'
+        : 'Invoice'
+      : isQuotation
+        ? 'Quotation Proposal'
+        : 'Statement Period';
+    const subject = `${businessProfile.businessName} - ${docTypeLabel} ${docNo}`;
     let body = `Dear ${clientName || 'Valued Client'},\n\n`;
     if (isInvoice) {
       body += `Please find the Invoice / Receipt details below:\nRef No: ${docNo}\nTotal Amount: ${currencySymbol}${document?.total?.toFixed(2)}\nDue Date: ${document?.dueDate || 'Upon receipt'}\n\n`;
@@ -57,8 +93,34 @@ export const DocumentTemplates: React.FC<DocumentTemplatesProps> = ({
       body += `Please find your Financial Statement overview below:\nPeriod: ${dateValue}\nOutstanding Balance: ${currencySymbol}${stats.balance.toFixed(2)}\n\n`;
     }
     body += `Kindly export the PDF of your document from your Portal view to view all line items and tax breakdowns.\n\nBest regards,\n${businessProfile.businessName}`;
-    
-    window.open(`mailto:${clientEmail || ''}?subject=${subject}&body=${encodeURIComponent(body)}`);
+
+    if (!clientEmail) {
+      alert('No client email on this document.');
+      return;
+    }
+
+    setEmailBusy(true);
+    try {
+      const result = await sendBusinessEmail(
+        {
+          to: clientEmail,
+          toName: clientName,
+          subject,
+          body,
+          fromName: businessProfile.businessName,
+          fromEmail: businessProfile.businessEmail,
+          replyTo: businessProfile.businessEmail,
+        },
+        settings
+      );
+      if (result.success) {
+        alert(result.message);
+      } else {
+        alert(result.message || 'Failed to send email.');
+      }
+    } finally {
+      setEmailBusy(false);
+    }
   };
 
   const handleWhatsAppShare = () => {
@@ -150,7 +212,7 @@ export const DocumentTemplates: React.FC<DocumentTemplatesProps> = ({
       <div className="w-full md:w-80 bg-neutral-900 border-b md:border-b-0 md:border-r border-neutral-800 p-6 flex flex-col gap-6 text-white overflow-y-auto shrink-0 print:hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-indigo-400" />
+            <LayoutGrid className="w-5 h-5 text-indigo-400" />
             <h3 className="font-semibold text-lg">Document Styles</h3>
           </div>
           <button onClick={onClose} className="p-1 px-2.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-400">
@@ -236,11 +298,12 @@ export const DocumentTemplates: React.FC<DocumentTemplatesProps> = ({
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={handleEmailShare}
-              className="py-2.5 px-3 bg-neutral-800 hover:bg-neutral-700 hover:text-white text-neutral-300 rounded text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer border border-neutral-800"
+              disabled={emailBusy}
+              className="py-2.5 px-3 bg-neutral-800 hover:bg-neutral-700 hover:text-white text-neutral-300 rounded text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer border border-neutral-800 disabled:opacity-50"
               title="Share via Mail"
             >
               <Mail className="w-3.5 h-3.5 text-blue-400" />
-              Email PDF
+              {emailBusy ? 'Sending…' : 'Email PDF'}
             </button>
             <button
               onClick={handleWhatsAppShare}
@@ -256,11 +319,11 @@ export const DocumentTemplates: React.FC<DocumentTemplatesProps> = ({
         {/* Action Trigger Buttons */}
         <div className="flex flex-col gap-2 mt-auto pt-6 border-t border-neutral-800">
           <button
-            onClick={handlePrint}
+            onClick={handleExportPDF}
             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded flex items-center justify-center gap-2 font-medium text-sm transition-colors cursor-pointer"
           >
-            <Printer className="w-4 h-4" />
-            Print / Save to PDF
+            <Download className="w-4 h-4" />
+            Download as PDF
           </button>
           
           <div className="text-[10px] text-neutral-500 text-center font-mono">
@@ -278,7 +341,7 @@ export const DocumentTemplates: React.FC<DocumentTemplatesProps> = ({
           {/* SECURED WATERMARK BADGE */}
           {showWatermark && (
             <div className="absolute top-4 right-4 text-[9px] text-zinc-400 border border-zinc-200 p-1 px-2 rounded-full font-mono flex items-center gap-1 pointer-events-none print:hidden">
-              <Sparkles className="w-3 h-3 text-emerald-500" />
+              <CheckCircle className="w-3 h-3 text-emerald-500" />
               Verified Document Suite
             </div>
           )}

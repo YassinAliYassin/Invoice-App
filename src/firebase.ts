@@ -1,6 +1,28 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer, collection, getDocs, setDoc, updateDoc, deleteDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  sendPasswordResetEmail,
+  User as FirebaseUser,
+} from 'firebase/auth';
+import {
+  getFirestore,
+  doc,
+  getDocFromServer,
+  collection,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  getDoc,
+  onSnapshot,
+} from 'firebase/firestore';
 import firebaseConfig from './firebase-applet-config.json';
 
 export enum OperationType {
@@ -25,21 +47,26 @@ export interface FirestoreErrorInfo {
 }
 
 // Check if credentials are correct or placeholder
-const isRealFirebase = firebaseConfig && !firebaseConfig.isPlaceholder && firebaseConfig.apiKey !== "placeholder-api-key";
+const isRealFirebase =
+  firebaseConfig &&
+  !(firebaseConfig as { isPlaceholder?: boolean }).isPlaceholder &&
+  firebaseConfig.apiKey !== 'placeholder-api-key';
 
-let app: any = null;
-let database: any = null;
-let firebaseAuth: any = null;
+let app: ReturnType<typeof initializeApp> | null = null;
+let database: ReturnType<typeof getFirestore> | null = null;
+let firebaseAuth: ReturnType<typeof getAuth> | null = null;
 
 if (isRealFirebase) {
   try {
     app = initializeApp(firebaseConfig);
-    // Secure firestoreDatabaseId handles optionally configured standard databases
-    database = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
+    const dbId =
+      (firebaseConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId ||
+      '(default)';
+    database = getFirestore(app, dbId);
     firebaseAuth = getAuth(app);
-    console.log("Firebase initialized successfully with config:", firebaseConfig.projectId);
+    console.log('Firebase initialized successfully with config:', firebaseConfig.projectId);
   } catch (error) {
-    console.error("Failed to initialize real Firebase:", error);
+    console.error('Failed to initialize real Firebase:', error);
   }
 }
 
@@ -47,36 +74,56 @@ export const db = database;
 export const auth = firebaseAuth;
 export const isCloudSyncEnabled = isRealFirebase && !!db;
 
-// Exception handler constraint compliant
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+export function handleFirestoreError(
+  error: unknown,
+  operationType: OperationType,
+  path: string | null
+): never {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth?.currentUser?.uid || "mock-user",
-      email: auth?.currentUser?.email || "mock-email@example.com",
+      userId: auth?.currentUser?.uid || 'mock-user',
+      email: auth?.currentUser?.email || 'mock-email@example.com',
       emailVerified: auth?.currentUser?.emailVerified || false,
       isAnonymous: auth?.currentUser?.isAnonymous || false,
     },
     operationType,
-    path
+    path,
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Test Connection constraint
 export async function testConnection() {
-  if (!isCloudSyncEnabled) return;
+  if (!isCloudSyncEnabled || !db) return;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
+      console.error('Please check your Firebase configuration.');
     }
   }
 }
 
 testConnection();
+
 export { isRealFirebase };
-export { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, collection, getDocs, setDoc, updateDoc, deleteDoc, doc, getDoc, onSnapshot };
+export {
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  sendPasswordResetEmail,
+  collection,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+};
 export type { FirebaseUser };

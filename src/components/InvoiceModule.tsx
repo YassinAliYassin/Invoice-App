@@ -1,8 +1,14 @@
 import React, { useState } from 'react';
 import { useBusiness } from '../context/BusinessContext';
-import { Invoice, Client, InvoiceItem, CurrencyCode, CURRENCY_SYMBOLS } from '../types';
-import { Plus, Trash2, Search, Calendar, FileText, CheckSquare, Sparkles, Send, CreditCard, Eye, AlertCircle, RefreshCw, X, Check } from 'lucide-react';
+import { Invoice, InvoiceItem, CurrencyCode, CURRENCY_SYMBOLS } from '../types';
+import { Plus, Trash2, Search, FileText, Send, CreditCard, Eye, AlertCircle, RefreshCw, X, Check, Pencil, CheckCircle2, Loader2, Download, Copy } from 'lucide-react';
 import { DocumentTemplates } from './DocumentTemplates';
+import {
+  generatePaymentReminder,
+  sendBusinessEmail,
+  isEmailConfigured,
+} from '../utils/email-service';
+import { downloadCsv } from '../utils/export';
 
 export const InvoiceModule: React.FC = () => {
   const {
@@ -11,6 +17,7 @@ export const InvoiceModule: React.FC = () => {
     inventory,
     saveInvoice,
     removeInvoice,
+    updateInvoiceStatus,
     recordPayment,
     payments,
     settings
@@ -19,6 +26,7 @@ export const InvoiceModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'draft' | 'sent' | 'paid' | 'overdue'>('all');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedInvoiceForPreview, setSelectedInvoiceForPreview] = useState<Invoice | null>(null);
 
   // Form states
@@ -29,7 +37,7 @@ export const InvoiceModule: React.FC = () => {
   const [currency, setCurrency] = useState<CurrencyCode>(settings.defaultCurrency as CurrencyCode || 'USD');
   const [notes, setNotes] = useState('');
   const [lineItems, setLineItems] = useState<InvoiceItem[]>([
-    { id: "1", description: "", quantity: 1, price: 0, taxRate: 10 }
+    { id: "1", description: "", quantity: 1, price: 0, taxRate: settings.defaultTaxRate || 10 }
   ]);
 
   // Payment record subform modal state
@@ -44,7 +52,14 @@ export const InvoiceModule: React.FC = () => {
   const [aiDraftSubject, setAiDraftSubject] = useState('');
   const [aiDraftBody, setAiDraftBody] = useState('');
   const [emailStatusMessage, setEmailStatusMessage] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [errorLocal, setErrorLocal] = useState('');
+  const [successLocal, setSuccessLocal] = useState('');
+
+  const flashSuccess = (msg: string) => {
+    setSuccessLocal(msg);
+    setTimeout(() => setSuccessLocal(''), 3500);
+  };
 
   // Core filter logic
   const filteredInvoices = invoices.filter(i => {
@@ -87,6 +102,45 @@ export const InvoiceModule: React.FC = () => {
     setLineItems(updated);
   };
 
+  const resetForm = () => {
+    setEditingId(null);
+    setClientId('');
+    setInvoiceNumber('INV-' + Date.now().toString().slice(-5));
+    setIssueDate(new Date().toISOString().split('T')[0]);
+    setDueDate(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+    setCurrency((settings.defaultCurrency as CurrencyCode) || 'USD');
+    setNotes('');
+    setLineItems([{ id: '1', description: '', quantity: 1, price: 0, taxRate: settings.defaultTaxRate || 10 }]);
+    setShowAddForm(false);
+    setErrorLocal('');
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setShowAddForm(true);
+  };
+
+  const openEdit = (inv: Invoice) => {
+    if (inv.status === 'paid') {
+      setErrorLocal('Paid invoices cannot be edited. Create a credit note workflow manually if needed.');
+      return;
+    }
+    setEditingId(inv.id);
+    setClientId(inv.clientId);
+    setInvoiceNumber(inv.invoiceNumber);
+    setIssueDate(inv.issueDate);
+    setDueDate(inv.dueDate);
+    setCurrency((inv.currency as CurrencyCode) || 'USD');
+    setNotes(inv.notes || '');
+    setLineItems(
+      inv.items.length
+        ? inv.items
+        : [{ id: '1', description: '', quantity: 1, price: 0, taxRate: settings.defaultTaxRate || 10 }]
+    );
+    setShowAddForm(true);
+    setErrorLocal('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorLocal('');
@@ -114,8 +168,10 @@ export const InvoiceModule: React.FC = () => {
         taxAmount += itemSub * (item.taxRate / 100);
       });
 
+      const existing = editingId ? invoices.find((i) => i.id === editingId) : null;
+
       const invoicePayload = {
-        id: "inv_" + Date.now().toString(),
+        id: editingId || 'inv_' + Date.now().toString(),
         invoiceNumber,
         clientId,
         clientName: client.name,
@@ -127,24 +183,75 @@ export const InvoiceModule: React.FC = () => {
         taxAmount,
         total: subtotal + taxAmount,
         currency,
-        status: "draft" as const,
+        status: (existing?.status || 'draft') as Invoice['status'],
         notes
       };
 
       await saveInvoice(invoicePayload);
-
-      // Reset
-      setClientId('');
-      setInvoiceNumber('INV-' + Date.now().toString().slice(-5));
-      setNotes('');
-      setLineItems([{ id: "1", description: "", quantity: 1, price: 0, taxRate: 10 }]);
-      setShowAddForm(false);
+      flashSuccess(editingId ? `Invoice ${invoiceNumber} updated.` : `Invoice ${invoiceNumber} created.`);
+      resetForm();
     } catch (err: any) {
       setErrorLocal(err.message || 'Invoice generation error');
     }
   };
 
-  // Trigger Gemini-powered Professional Reminder Draft
+  const duplicateInvoice = async (inv: Invoice) => {
+    const copy: Omit<Invoice, 'userId' | 'createdAt' | 'updatedAt'> = {
+      ...inv,
+      id: 'inv_' + Date.now().toString(),
+      invoiceNumber: 'INV-' + Date.now().toString().slice(-6),
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      status: 'draft',
+      notes: inv.notes
+        ? `Duplicated from ${inv.invoiceNumber}. ${inv.notes}`
+        : `Duplicated from ${inv.invoiceNumber}.`,
+    };
+    await saveInvoice(copy);
+    flashSuccess(`Duplicated as ${copy.invoiceNumber}`);
+  };
+
+  const exportInvoicesCsv = () => {
+    downloadCsv(
+      `invoices-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        'Invoice #',
+        'Client',
+        'Email',
+        'Issue Date',
+        'Due Date',
+        'Status',
+        'Currency',
+        'Subtotal',
+        'Tax',
+        'Total',
+        'Paid',
+        'Balance',
+      ],
+      invoices.map((i) => {
+        const paid = payments
+          .filter((p) => p.invoiceId === i.id)
+          .reduce((s, p) => s + p.amount, 0);
+        return [
+          i.invoiceNumber,
+          i.clientName,
+          i.clientEmail,
+          i.issueDate,
+          i.dueDate,
+          i.status,
+          i.currency,
+          i.subtotal.toFixed(2),
+          i.taxAmount.toFixed(2),
+          i.total.toFixed(2),
+          paid.toFixed(2),
+          (i.total - paid).toFixed(2),
+        ];
+      })
+    );
+    flashSuccess('Invoices exported to CSV.');
+  };
+
+  // Trigger Smart Reminder Draft
   const handleDraftAiReminder = async (invoice: Invoice) => {
     setAiReminderInvoice(invoice);
     setIsAiDrafting(true);
@@ -153,61 +260,80 @@ export const InvoiceModule: React.FC = () => {
     setAiDraftBody('');
     setEmailStatusMessage('');
 
-    const client = clients.find(c => c.id === invoice.clientId);
+    const client = clients.find((c) => c.id === invoice.clientId);
+    const clientName = client?.name || invoice.clientName;
 
     try {
-      const resp = await fetch('/api/generate-reminder', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          invoice,
-          client: client || { name: invoice.clientName },
-          businessName: settings.businessName
-        })
-      });
-
-      const data = await resp.json();
-      if (!resp.ok) {
-        throw new Error(data.error || 'Failed to trigger Gemini generation');
+      // Prefer server API when available; fall back to client-side draft
+      try {
+        const resp = await fetch('/api/generate-reminder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invoice,
+            client: client || { name: clientName },
+            businessName: settings.businessName,
+            businessEmail: settings.businessEmail,
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          setAiDraftSubject(data.subject);
+          setAiDraftBody(data.body);
+          return;
+        }
+      } catch {
+        /* static hosting or offline — use local generator */
       }
 
-      setAiDraftSubject(data.subject);
-      setAiDraftBody(data.body);
-    } catch (err: any) {
-      setErrorLocal(err.message || 'Gemini drafting encountered an error.');
+      const draft = generatePaymentReminder({
+        invoice,
+        clientName,
+        businessName: settings.businessName,
+        businessEmail: settings.businessEmail,
+        template: settings.overdueAlertTemplate,
+      });
+      setAiDraftSubject(draft.subject);
+      setAiDraftBody(draft.body);
     } finally {
       setIsAiDrafting(false);
     }
   };
 
-  // Dispatch Email mock trigger
+  // Real EmailJS send (or mailto fallback)
   const handleSendEmail = async () => {
-    if (!aiReminderInvoice) return;
-    try {
-      const resp = await fetch('/api/send-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          to: aiReminderInvoice.clientEmail,
-          subject: aiDraftSubject,
-          body: aiDraftBody
-        })
-      });
+    if (!aiReminderInvoice || !aiDraftSubject || !aiDraftBody) return;
+    setIsSendingEmail(true);
+    setErrorLocal('');
+    setEmailStatusMessage('');
 
-      const result = await resp.json();
+    try {
+      const result = await sendBusinessEmail(
+        {
+          to: aiReminderInvoice.clientEmail,
+          toName: aiReminderInvoice.clientName,
+          subject: aiDraftSubject,
+          body: aiDraftBody,
+          fromName: settings.businessName,
+          fromEmail: settings.businessEmail,
+          replyTo: settings.businessEmail,
+        },
+        settings
+      );
+
       if (result.success) {
-        setEmailStatusMessage(`Notification forwarded successfully! ${result.message}`);
-        // Shift status to overdue if sent is checked
-        // or keep standard flow
+        setEmailStatusMessage(result.message);
+        if (aiReminderInvoice.status === 'draft') {
+          await updateInvoiceStatus(aiReminderInvoice.id, 'sent');
+        }
       } else {
-        setErrorLocal('Dispactching failed.');
+        setErrorLocal(result.message || 'Dispatch failed.');
       }
-    } catch (err: any) {
-      setErrorLocal('Communication with proxy failed.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to send email.';
+      setErrorLocal(msg);
+    } finally {
+      setIsSendingEmail(false);
     }
   };
 
@@ -241,38 +367,58 @@ export const InvoiceModule: React.FC = () => {
   return (
     <div className="flex flex-col gap-6">
 
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">Financial Invoices</h2>
-          <p className="text-xs text-slate-500">Track balance sheets, draft client accounts, receive payments, and draft overdue alerts with Gemini.</p>
+          <span className="badge bg-blue-50 text-blue-700 border border-blue-100 mb-2">
+            Billing
+          </span>
+          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Invoices</h2>
+          <p className="text-sm text-slate-500 mt-1 max-w-xl">
+            Create bills, collect payments, chase overdue balances, export reports.
+          </p>
         </div>
 
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className={`px-4 py-2.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all duration-300 shadow-md cursor-pointer select-none active:scale-[0.98] ${
-            showAddForm
-              ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 shadow-rose-100/50'
-              : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-100 shadow-indigo-500/10'
-          }`}
-        >
-          {showAddForm ? (
-            <>
-              <X className="w-4 h-4" />
-              Close Form
-            </>
-          ) : (
-            <>
-              <Plus className="w-4 h-4" />
-              Create New Invoice
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={exportInvoicesCsv}
+            disabled={invoices.length === 0}
+            className="btn-secondary disabled:opacity-40"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Export CSV
+          </button>
+          <button
+            onClick={() => (showAddForm ? resetForm() : openCreate())}
+            className={showAddForm ? 'btn-secondary !text-rose-600 !border-rose-200' : 'btn-primary'}
+          >
+            {showAddForm ? (
+              <>
+                <X className="w-4 h-4" />
+                Close
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4" />
+                New invoice
+              </>
+            )}
+          </button>
+        </div>
       </div>
+
+      {successLocal && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg p-3 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4" />
+          {successLocal}
+        </div>
+      )}
 
       {showAddForm && (
         <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col gap-4 max-w-4xl">
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Configure Client Invoice Details</h3>
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">
+            {editingId ? 'Edit Invoice' : 'Configure Client Invoice Details'}
+          </h3>
 
           {errorLocal && (
             <div className="bg-red-50 border border-red-200 text-red-600 rounded p-3 text-xs flex items-center gap-2">
@@ -452,7 +598,7 @@ export const InvoiceModule: React.FC = () => {
           <div className="flex justify-end gap-2.5 mt-2 border-t border-slate-100 pt-4">
             <button
               type="button"
-              onClick={() => setShowAddForm(false)}
+              onClick={resetForm}
               className="px-4 py-2 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-550 transition-all cursor-pointer border border-transparent hover:border-slate-200 flex items-center gap-1.5"
             >
               <X className="w-3.5 h-3.5" />
@@ -463,7 +609,7 @@ export const InvoiceModule: React.FC = () => {
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm shadow-indigo-100"
             >
               <Check className="w-3.5 h-3.5" />
-              Issue & Register Invoice
+              {editingId ? 'Save Invoice Changes' : 'Issue & Register Invoice'}
             </button>
           </div>
         </form>
@@ -521,15 +667,40 @@ export const InvoiceModule: React.FC = () => {
                     <span className={`text-[9px] font-bold uppercase p-1 px-2 rounded-full font-mono border ${
                       i.status === 'paid' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
                       isOverdue || i.status === 'overdue' ? 'bg-red-50 border-red-100 text-red-600' :
+                      totalPaid > 0 && outstandingBal > 0 ? 'bg-amber-50 border-amber-100 text-amber-700' :
                       i.status === 'sent' ? 'bg-blue-50 border-blue-100 text-blue-600' :
                       'bg-slate-50 border-slate-205 text-slate-500'
                     }`}>
-                      {i.status === 'paid' ? 'Paid' : isOverdue ? 'Overdue' : i.status}
+                      {i.status === 'paid'
+                        ? 'Paid'
+                        : totalPaid > 0 && outstandingBal > 0
+                          ? 'Partial'
+                          : isOverdue
+                            ? 'Overdue'
+                            : i.status}
                     </span>
 
                     <button
-                      onClick={() => removeInvoice(i.id)}
-                      className="p-1 rounded text-slate-300 hover:text-red-505 hover:bg-red-50 cursor-pointer"
+                      onClick={() => duplicateInvoice(i)}
+                      className="p-1 rounded text-slate-300 hover:text-blue-600 hover:bg-blue-50 cursor-pointer"
+                      title="Duplicate Invoice"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                    {i.status !== 'paid' && (
+                      <button
+                        onClick={() => openEdit(i)}
+                        className="p-1 rounded text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer"
+                        title="Edit Invoice"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Delete invoice ${i.invoiceNumber}?`)) removeInvoice(i.id);
+                      }}
+                      className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 cursor-pointer"
                       title="Delete Invoice"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -565,6 +736,30 @@ export const InvoiceModule: React.FC = () => {
 
               {/* Invoices Action buttons */}
               <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 mt-auto">
+                {/* Status pipeline */}
+                {i.status !== 'paid' && (
+                  <div className="flex gap-2">
+                    {i.status === 'draft' && (
+                      <button
+                        onClick={() => updateInvoiceStatus(i.id, 'sent')}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg text-[11px] flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        Mark as Sent
+                      </button>
+                    )}
+                    {(i.status === 'sent' || i.status === 'overdue' || i.status === 'draft') && (
+                      <button
+                        onClick={() => updateInvoiceStatus(i.id, 'paid')}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded-lg text-[11px] flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Mark as Paid
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   <button
                     onClick={() => setSelectedInvoiceForPreview(i)}
@@ -588,13 +783,12 @@ export const InvoiceModule: React.FC = () => {
                   )}
                 </div>
 
-                {/* Gemini AI Overdue Reminder trigger */}
                 {outstandingBal > 0 && (
                   <button
                     onClick={() => handleDraftAiReminder(i)}
                     className="w-full bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded-lg text-[11px] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                    <RefreshCw className="w-3.5 h-3.5 text-blue-500" />
                     Draft AI Email Reminder
                   </button>
                 )}
@@ -684,15 +878,15 @@ export const InvoiceModule: React.FC = () => {
         </div>
       )}
 
-      {/* 2. Gemini AI Overdue Email Reminder Assistant Drawer */}
+      {/* 2. Smart Overdue Email Reminder Assistant Drawer */}
       {aiReminderInvoice && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 font-sans">
           <div className="bg-white border border-slate-200 rounded-xl p-6 w-full max-w-2xl shadow-2xl flex flex-col gap-4">
             <div className="flex justify-between items-start border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-blue-600 animate-pulse" />
+                <RefreshCw className="w-5 h-5 text-blue-600 animate-pulse" />
                 <div>
-                  <h3 className="font-bold text-base text-slate-900">Gemini Professional Overdue Mailer</h3>
+                  <h3 className="font-bold text-base text-slate-900">Smart Overdue Mailer</h3>
                   <p className="text-xs text-slate-500">Overdue Reminders dynamically customized based on invoice specifics.</p>
                 </div>
               </div>
@@ -725,7 +919,7 @@ export const InvoiceModule: React.FC = () => {
               {isAiDrafting ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-500 text-xs font-mono">
                   <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
-                  <span>Gemini is analyzing overdue balances, compiling tax allocations, and drafting professional copy...</span>
+                  <span>Analyzing overdue balances, compiling tax allocations, and drafting professional copy...</span>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -752,11 +946,13 @@ export const InvoiceModule: React.FC = () => {
               )}
             </div>
 
-            <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4">
-              <div className="text-[10px] text-slate-400 font-mono">
-                Powered by Gemini Enterprise AI
+            <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-4 gap-3 flex-wrap">
+              <div className="text-[10px] text-slate-400 font-mono max-w-[220px] leading-relaxed">
+                {isEmailConfigured(settings)
+                  ? 'EmailJS configured — one-click send'
+                  : 'No EmailJS keys — opens your mail app (configure in Settings)'}
               </div>
-              
+
               <div className="flex gap-2">
                 <button
                   onClick={() => setAiReminderInvoice(null)}
@@ -766,11 +962,19 @@ export const InvoiceModule: React.FC = () => {
                 </button>
                 <button
                   onClick={handleSendEmail}
-                  disabled={isAiDrafting || !aiDraftSubject}
+                  disabled={isAiDrafting || isSendingEmail || !aiDraftSubject}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-30 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  Dispatch Professional Reminders
+                  {isSendingEmail ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  {isSendingEmail
+                    ? 'Sending…'
+                    : isEmailConfigured(settings)
+                      ? 'Send Email'
+                      : 'Open in Mail App'}
                 </button>
               </div>
             </div>
