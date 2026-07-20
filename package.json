@@ -1,7 +1,7 @@
 {
   "name": "invoicestack",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "deploy": "npm run build:client && firebase deploy --only hosting,firestore:rules",
     "deploy:hosting": "npm run build:client && firebase deploy --only hosting",
-    "deploy:rules": "firebase deploy --only firestore:rules"
+    "deploy:rules": "firebase deploy --only firestore:rules",
+    "ai:prepare": "echo 'Ready for Hermes AI integration - see src/utils/ai-helpers.ts'"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
